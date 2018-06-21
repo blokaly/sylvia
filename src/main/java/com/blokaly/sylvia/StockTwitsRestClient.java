@@ -21,6 +21,17 @@ public class StockTwitsRestClient {
   private static final String SYMBOL_MAX_PATH = SYMBOL_PATH + "?max=%s";
   private final Gson gson = new Gson();
   private final JsonParser parser = new JsonParser();
+  private final int interval;
+  private final boolean force;
+
+  public StockTwitsRestClient() {
+    this(10, false);
+  }
+
+  public StockTwitsRestClient(int interval, boolean force) {
+    this.interval = interval;
+    this.force = force;
+  }
 
   public String retrieveMessages(String symbol, long max) {
 
@@ -57,7 +68,7 @@ public class StockTwitsRestClient {
           JsonArray messages = res.get("messages").getAsJsonArray();
           int updated = elasticClient.upsert(messages);
           LOGGER.info("Stocktwits updated [{}]", updated);
-          if (updated > 0) {
+          if (updated > 0 || force) {
             return nextMax(cursor);
           }
         } else {
@@ -74,8 +85,8 @@ public class StockTwitsRestClient {
     return () -> {
       long next = update(elasticClient, symbol, max);
       if (next > 0) {
-        LOGGER.info("next task in 10 secs...");
-        executorService.schedule(newUpdateTask(executorService, elasticClient, symbol, next), 10, TimeUnit.SECONDS);
+        LOGGER.info("next task in {} secs...", interval);
+        executorService.schedule(newUpdateTask(executorService, elasticClient, symbol, next), interval, TimeUnit.SECONDS);
       } else {
         executorService.shutdown();
       }
@@ -94,8 +105,14 @@ public class StockTwitsRestClient {
 
   public static void main(String[] args) throws Exception {
 
+    int interval = Integer.parseInt(args[0]);
+    boolean force = false;
+    if (args.length > 1 && "-f".equalsIgnoreCase(args[1])) {
+      force = true;
+    }
+
     final ElasticClient elasticClient = new ElasticClient();
-    final StockTwitsRestClient client = new StockTwitsRestClient();
+    final StockTwitsRestClient client = new StockTwitsRestClient(interval, force);
 
     ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
 
